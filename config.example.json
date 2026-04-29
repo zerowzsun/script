@@ -1,0 +1,16 @@
+{
+  "database": {
+    "type": "mysql",
+    "host": "127.0.0.1",
+    "port": 3306,
+    "username": "root",
+    "password": "root",
+    "database": "root"
+  },
+  "qiniu": {
+    "access_key": "qiniu_access_key_example",
+    "secret_key": "qiniu_secret_key_example",
+    "bucket": "qiniu_bucket_example"
+  },
+  "backup_dir": "/tmp/db_backups"
+}

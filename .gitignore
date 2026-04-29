@@ -1,0 +1,5 @@
+# 忽略真实的环境配置文件
+config.json
+
+# 但不要忽略示例文件（如果上面写了忽略所有 .env*，就需要加这行豁免）
+!config.json.example
