@@ -172,7 +172,14 @@ class DatabaseBackupUploader:
             
             # 生成上传token
             bucket_name = self.qiniu_config['bucket']
-            key = os.path.basename(local_file_path)  # 使用原文件名作为key
+            filename = os.path.basename(local_file_path)
+            
+            # 获取文件夹前缀配置
+            prefix = self.qiniu_config.get('prefix', '').strip()
+            if prefix and not prefix.endswith('/'):
+                prefix = prefix + '/'  # 确保前缀以/结尾
+            
+            key = prefix + filename  # 使用前缀+文件名作为key
             
             token = q.upload_token(bucket_name, key, 3600)
             
@@ -251,7 +258,8 @@ def main():
         'qiniu': {
             'access_key': 'your_access_key',
             'secret_key': 'your_secret_key',
-            'bucket': 'your_bucket_name'
+            'bucket': 'your_bucket_name',
+            'prefix': ''  # 七牛云空间中的文件夹前缀，例如：db_backups/
         },
         'backup_dir': '/tmp/db_backups'
     }
@@ -276,6 +284,8 @@ def main():
                        default=default_config['qiniu']['secret_key'], help='七牛云Secret Key')
     parser.add_argument('--qiniu-bucket', type=str, 
                        default=default_config['qiniu']['bucket'], help='七牛云存储空间名')
+    parser.add_argument('--qiniu-prefix', type=str, 
+                       default=default_config['qiniu']['prefix'], help='七牛云空间文件夹前缀')
     parser.add_argument('--backup-dir', type=str, 
                        default=default_config['backup_dir'], help='备份文件存储目录')
     
@@ -300,7 +310,8 @@ def main():
             'qiniu': {
                 'access_key': args.qiniu_access_key,
                 'secret_key': args.qiniu_secret_key,
-                'bucket': args.qiniu_bucket
+                'bucket': args.qiniu_bucket,
+                'prefix': args.qiniu_prefix
             },
             'backup_dir': args.backup_dir
         }

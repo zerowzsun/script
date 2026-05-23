@@ -10,7 +10,8 @@
   "qiniu": {
     "access_key": "qiniu_access_key_example",
     "secret_key": "qiniu_secret_key_example",
-    "bucket": "qiniu_bucket_example"
+    "bucket": "qiniu_bucket_example",
+    "prefix": ""
   },
   "backup_dir": "/tmp/db_backups"
 }
