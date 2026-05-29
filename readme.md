@@ -1,105 +1,71 @@
-# 数据库备份脚本
+# Script Tool Collection / 脚本工具集
 
-一个简单的数据库备份工具，支持 MySQL、PostgreSQL 和 SQLite，自动将备份文件上传到七牛云存储。
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-## 功能特性
+日常开发中积累的实用脚本工具合集，涵盖 **macOS 系统运维** 和 **数据备份** 等场景。  
+所有脚本均遵循 **即拿即用** 的原则，配置简洁，开箱即用。
 
-- 支持 MySQL、PostgreSQL、SQLite 三种数据库
-- 自动备份数据库
-- 自动上传备份文件到七牛云存储
-- 上传成功后自动删除本地备份文件
-- 完整的日志记录
-- 支持配置文件和命令行参数两种配置方式
+## 目录结构
 
-## 虚拟环境设置
+script/
+├── Mac/                          # macOS 相关脚本
+│   └── Homebrew PHP PECL Symbolic Link Repair Tool/
+│       ├── fix_pecl_symlink.sh   # 修复 Homebrew PHP pecl 符号链接 Bug
+│       └── readme.md
+├── Python/                       # Python 脚本
+│   └── Database backup and upload to Qiniu Cloud/
+│       ├── back_sql.py           # 数据库备份并上传到七牛云
+│       ├── requirements.txt
+│       └── readme.md
+├── config.example.json           # 配置文件模板
+├── .gitignore
+└── LICENSE
 
-### Windows 系统
 
-```bash
-# 创建虚拟环境
-python -m venv venv
+## 脚本列表
 
-# 激活虚拟环境
-venv\Scripts\activate
-```
+### 1. 修复 Homebrew PHP pecl 符号链接 Bug
 
-### Linux / macOS 系统
+- **路径**: `Mac/Homebrew PHP PECL Symbolic Link Repair Tool/fix_pecl_symlink.sh`
+- **语言**: Bash
+- **适用系统**: macOS（Apple Silicon / Intel）
+- **功能**: 自动检测并修复 Homebrew 安装的 PHP 8.x 中 `pecl` 目录因符号链接导致 `mkdir` 失败的问题，将符号链接替换为真实目录并修正权限。
+- **快速使用**:
+  ```bash
+  chmod +x fix_pecl_symlink.sh && ./fix_pecl_symlink.sh
+  ```
 
-```bash
-# 创建虚拟环境
-python3 -m venv venv
+### 2. 数据库备份并上传到七牛云
 
-# 激活虚拟环境
-source venv/bin/activate
-```
+- **路径**: `Python/Database backup and upload to Qiniu Cloud/back_sql.py`
+- **语言**: Python 3
+- **适用系统**: macOS / Linux / Windows
+- **功能**: 支持 **MySQL**、**PostgreSQL**、**SQLite** 三种数据库的本地备份，自动上传备份文件到**七牛云存储**，上传完成后自动删除本地临时文件。
+- **快速使用**:
+  ```bash
+  # 1. 安装依赖
+  pip install -r requirements.txt
 
-激活虚拟环境后，命令行提示符前会显示 `(venv)`。
+  # 2. 复制配置模板并填入真实信息
+  cp config.example.json config.json
 
-## 安装依赖
+  # 3. 运行
+  python back_sql.py
+  ```
 
-```bash
-pip install -r requirements.txt
-```
+  > 详细说明请参考该目录下的 [readme.md](Python/Database%20backup%20and%20upload%20to%20Qiniu%20Cloud/readme.md)。
 
-## 配置方式
+## 全局配置
 
-### 方式一：使用配置文件
-
-复制 `config.example.json` 为 `config.json`，然后修改配置：
-
-```json
-{
-  "database": {
-    "type": "mysql",
-    "host": "127.0.0.1",
-    "port": 3306,
-    "username": "root",
-    "password": "root",
-    "database": "root"
-  },
-  "qiniu": {
-    "access_key": "your_access_key",
-    "secret_key": "your_secret_key",
-    "bucket": "your_bucket_name"
-  },
-  "backup_dir": "/tmp/db_backups"
-}
-```
-
-### 方式二：命令行参数
-
-直接通过命令行参数指定配置。
-
-## 使用方法
-
-### 使用默认配置文件
+部分脚本会读取根目录下的 `config.json` 作为配置来源。  
+请参考 `config.example.json` 创建你的配置文件：
 
 ```bash
-python back_sql.py
+cp config.example.json config.json
 ```
 
-### 使用指定配置文件
+> ⚠️ `config.json` 已在 `.gitignore` 中，不会提交到仓库，请放心填写敏感信息。
 
-```bash
-python back_sql.py --config-file config.json
-```
+## 许可证
 
-### 使用命令行参数
-
-```bash
-python back_sql.py --db-type mysql --db-host localhost --db-port 3306 --db-user root --db-password password --db-name your_db --qiniu-access-key your_key --qiniu-secret-key your_secret --qiniu-bucket your_bucket
-```
-
-## 参数说明
-
-- `--config-file`: 配置文件路径
-- `--db-type`: 数据库类型 (mysql/postgresql/sqlite)
-- `--db-host`: 数据库主机
-- `--db-port`: 数据库端口
-- `--db-user`: 数据库用户名
-- `--db-password`: 数据库密码
-- `--db-name`: 数据库名
-- `--qiniu-access-key`: 七牛云 Access Key
-- `--qiniu-secret-key`: 七牛云 Secret Key
-- `--qiniu-bucket`: 七牛云存储空间名
-- `--backup-dir`: 备份文件存储目录
+[MIT](LICENSE) © 2026 zunz
