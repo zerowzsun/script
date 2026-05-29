@@ -1,95 +1,91 @@
-Homebrew PHP PECL 符号链接修复工具
+### 📖 Homebrew PHP PECL 符号链接修复工具
 
-📋 问题背景
+解决 macOS Apple Silicon 环境下，通过 Homebrew 管理 PHP 时执行 `pecl install` 触发 `mkdir(): File exists` 错误，以及修复后扩展无法加载的完整自动化工具。
 
-在使用 Homebrew 安装的 PHP 8.x（尤其是 8.4）通过 pecl install 安装扩展时，可能会遇到以下错误：
+#### 🎯 解决的问题
 
-Warning: mkdir(): File exists in System.php on line 294
-ERROR: failed to mkdir /opt/homebrew/Cellar/php/8.4.5_1/pecl/20240924
+Homebrew 安装的 PHP 存在一个长期未修复的路径机制缺陷：
 
-根本原因
+1.  **写入阶段报错**：`/opt/homebrew/lib/php/pecl` 是指向 Cellar 的符号链接，PECL 在编译安装扩展时对该符号链接执行 `mkdir()` 创建 API 版本子目录会失败
+2.  **读取阶段断裂**：若简单将符号链接替换为真实目录来绕过上述错误，会导致 PECL 将 `.so` 文件安装到 Cellar 中，而 PHP 运行时仍在 `/lib/php/pecl` 下查找，造成 `Unable to load dynamic library` 警告
 
-这是 Homebrew PHP Formula 的一个已知 Bug。Homebrew 在安装或升级 PHP 时，错误地将 pecl 目录创建为了符号链接（symlink），而非真实目录。PEAR/PECL 安装程序在尝试对符号链接执行 mkdir() 时，PHP 8.x 会抛出 File exists 警告并中断安装流程。
+本工具通过 **fix → install → restore** 三阶段工作流，同时解决这两个互斥问题。
 
-受影响的典型路径：
+#### ⚡ 快速开始
 
-/opt/homebrew/Cellar/php//pecl → 符号链接
-/opt/homebrew/lib/php/pecl → 符号链接
-
-🛠️ 解决方案概述
-
-本工具提供一个自动化 Shell 脚本 fix_pecl_symlink.sh，用于一键检测并修复上述问题。脚本的核心逻辑为：
-
-自动检测当前激活的 PHP 版本及 API 版本号
-检查 Cellar 和 lib 两处 pecl 路径是否为符号链接
-安全移除符号链接并替换为真实目录
-自动设置正确的用户权限与 API 子目录
-验证修复结果
-
-📦 文件说明
-文件   用途
-fix_pecl_symlink.sh   自动检查与修复脚本
-
-README.md   本文档
-
-🚀 快速开始
-
-前置要求
-
-macOS 系统（Apple Silicon 或 Intel 均可）
-已安装 Homebrew
-已通过 Homebrew 安装 PHP 8.x
-
-使用步骤
-
-赋予执行权限
+```bash
+# 下载并赋予执行权限
+curl -fsSL https://raw.githubusercontent.com/zerowzsun/script/refs/heads/master/Mac/Homebrew%20PHP%20PECL%20Symbolic%20Link%20Repair%20Tool/fix_pecl_symlink.sh -o fix_pecl_symlink.sh
 chmod +x fix_pecl_symlink.sh
 
-运行修复脚本
-./fix_pecl_symlink.sh
+# 完整修复流程（以 redis 和 xdebug 为例）
+./fix_pecl_symlink.sh fix              # ① 临时解除符号链接
+pecl install -f redis                  # ② 强制安装扩展
+pecl install -f xdebug                 #    （可连续安装多个）
+./fix_pecl_symlink.sh restore          # ③ 恢复符号链接
+php -m | grep -E 'redis|xdebug'        # ④ 验证
+```
 
-验证修复成功后，正常安装扩展
-pecl install 
+#### 🔧 命令说明
 
-提示：脚本全程不需要 sudo，因为 Homebrew PHP 目录归当前用户所有。
+| 命令 | 用途 | 执行时机 |
+| :--- | :--- | :--- |
+| `./fix_pecl_symlink.sh fix` | 将 pecl 符号链接替换为真实目录，绕过 mkdir Bug | `brew upgrade php` 之后、`pecl install` 之前 |
+| `./fix_pecl_symlink.sh restore` | 重建 `/lib/php/pecl` → Cellar 的符号链接 | 所有 `pecl install` 完成之后 |
 
-⚙️ 脚本特性
+> **⚠️ 重要提示**：`fix` 和 `restore` 必须成对使用。仅执行 `fix` 而不执行 `restore` 会导致已安装的扩展在 PHP 运行时不可用。
 
-自动版本检测：通过 php -r 动态获取版本号和 API 版本号，无需手动指定
-模糊版本匹配：兼容 Homebrew 带后缀的版本号（如 8.4.5_1）
-双路径修复：同时处理 Cellar 和 /lib/php/pecl，避免遗漏
-幂等安全：可重复运行，已修复状态下仅做权限确认，不破坏已有扩展
-自动验证：修复完成后立即校验路径类型与子目录完整性
-跨架构兼容：使用 brew --prefix 动态定位，同时支持 Apple Silicon (/opt/homebrew) 和 Intel (/usr/local)
+#### 🔄 典型场景
 
-⚠️ 注意事项
+##### 场景一：升级 PHP 后重装扩展
 
-Homebrew 升级后需重新运行
+```bash
+brew upgrade php
+./fix_pecl_symlink.sh fix
 
-每次执行 brew upgrade php 后，Formula 可能会重新将目录替换为符号链接。建议在每次 PHP 升级后重新运行此脚本。
+# 从备份清单批量重装
+cat ~/pecl_extensions_backup.txt | xargs -I {} pecl install -f {}
 
-已有扩展备份
+./fix_pecl_symlink.sh restore
+php -m   # 确认所有扩展正常加载
+```
 
-如果之前在符号链接指向的目标目录中已安装过扩展，脚本移除符号链接时这些文件将不可访问。建议运行前手动备份：
+##### 场景二：首次安装新扩展
 
-cp -r /opt/homebrew/lib/php/pecl/* ~/pecl_backup/ 2>/dev/null || true
+```bash
+./fix_pecl_symlink.sh fix
+pecl install -f mongodb
+./fix_pecl_symlink.sh restore
+php --ri mongodb   # 验证扩展信息
+```
 
-不适用的场景
+##### 场景三：不确定当前状态
 
-非 Homebrew 安装的 PHP（如 phpbrew、asdf、官方 pkg 安装包）
-Linux 环境
-PHP 7.x 及以下版本（该 Bug 主要影响 PHP 8.x）
+直接运行 `fix` 即可，脚本会自动检测当前路径状态：
+- 若已是真实目录 → 跳过，提示无需修复
+- 若是符号链接 → 执行替换
+- 若目录不存在 → 自动创建
 
-🔍 手动验证
+#### 🛡️ 安全机制
 
-如需在不运行脚本的情况下确认是否存在此问题：
+-   **restore 前自动扫描**：检测 Cellar 中是否存在 `.so` 文件，防止在扩展未安装时误恢复空目录链接
+-   **交互式确认**：当未发现已安装扩展时，restore 会暂停并要求用户确认，避免意外操作
+-   **幂等设计**：重复执行同一命令不会产生副作用或破坏现有配置
+-   **非侵入式**：不修改任何 `php.ini` 或 PECL 注册表，仅操作文件系统层面的路径映射
 
-如果输出以 'l' 开头，说明是符号链接（存在问题）
-如果输出以 'd' 开头，说明是真实目录（正常）
-ls -ld /opt/homebrew/Cellar/php/*/pecl
-ls -ld /opt/homebrew/lib/php/pecl
+#### 📋 环境要求
 
-📎 相关资源
+-   macOS (Apple Silicon / Intel)
+-   Homebrew 安装的 PHP 8.x
+-   Bash 4.0+（macOS 自带或 `brew install bash`）
 
-Homebrew/homebrew-core Issues — 可搜索 "pecl symlink" 关注上游修复进度
-PEAR Bug Tracker — PEAR System.php mkdir 兼容性问题的上游追踪
+#### ❓ FAQ
+
+**Q: 为什么不能用 `pecl install` 而是必须用 `pecl install -f`？**
+A: 因为 PECL 注册表中仍记录着旧版本的安装信息，即使 `.so` 文件已丢失，普通 install 也会认为"已安装"而跳过编译。`-f` 参数强制忽略注册表重新编译。
+
+**Q: restore 之后再次运行 fix 会丢失已安装的扩展吗？**
+A: 不会。fix 仅替换 `/lib/php/pecl` 的路径类型，Cellar 中的 `.so` 文件始终不受影响。
+
+**Q: 支持多版本 PHP 共存吗？**
+A: 支持。脚本通过 `php -r` 动态获取当前活跃 PHP 的版本号和 API 版本，自动定位对应的 Cellar 目录，与 `brew link php@8.x` 切换的版本保持一致。

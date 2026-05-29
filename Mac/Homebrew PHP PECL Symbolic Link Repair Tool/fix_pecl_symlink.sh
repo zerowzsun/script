@@ -1,143 +1,205 @@
-#!/bin/bash
-# =============================================================================
-# 脚本名称: fix_pecl_symlink.sh
-# 描述:     自动检测并修复 Homebrew PHP 8.x pecl 符号链接导致的 mkdir 失败问题
-# 适用环境: macOS + Homebrew (Apple Silicon /opt/homebrew 或 Intel /usr/local)
-# 用法:     chmod +x fix_pecl_symlink.sh && ./fix_pecl_symlink.sh
-# =============================================================================
-
+#!/usr/bin/env bash
 set -euo pipefail
 
-# ------------------------- 颜色输出定义 -------------------------
+# ============================================================
+# Homebrew PHP PECL 符号链接修复工具 v2.0
+# 
+# 用法:
+#   ./fix_pecl_symlink.sh fix      # 升级PHP后运行，临时解除符号链接
+#   ./fix_pecl_symlink.sh restore  # pecl install 完成后运行，恢复符号链接
+# ============================================================
+
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
+CYAN='\033[0;36m'
+NC='\033[0m'
 
-info()    { echo -e "${BLUE}[INFO]${NC} $*"; }
-success() { echo -e "${GREEN}[OK]${NC}   $*"; }
+info()    { echo -e "${CYAN}[INFO]${NC} $*"; }
+success() { echo -e "${GREEN}[OK]${NC} $*"; }
 warn()    { echo -e "${YELLOW}[WARN]${NC} $*"; }
-error()   { echo -e "${RED}[ERROR]${NC} $*"; exit 1; }
+error()   { echo -e "${RED}[ERROR]${NC} $*" >&2; }
 
-# ------------------------- 前置检查 -------------------------
-if [[ "$(uname)" != "Darwin" ]]; then
-    error "此脚本仅适用于 macOS 系统"
-fi
-
-if ! command -v brew &>/dev/null; then
-    error "未检测到 Homebrew，请先安装: https://brew.sh"
-fi
-
-if ! command -v php &>/dev/null; then
-    error "未检测到 PHP，请先运行: brew install php"
-fi
-
-# ------------------------- 获取 PHP 信息 -------------------------
-PHP_VERSION=$(php -r 'echo PHP_MAJOR_VERSION.".".PHP_MINOR_VERSION;')
-PHP_API=$(php -r 'echo PHP_API_VERSION;')
-BREW_PREFIX=$(brew --prefix)
-
-# 定位 Cellar 中的 PHP 路径
-PHP_CELLAR_DIR="${BREW_PREFIX}/Cellar/php/${PHP_VERSION}"
-
-# 如果精确版本目录不存在，尝试模糊匹配（如 8.4.5_1）
-if [[ ! -d "$PHP_CELLAR_DIR" ]]; then
-    PHP_CELLAR_DIR=$(find "${BREW_PREFIX}/Cellar/php" -maxdepth 1 -type d -name "${PHP_VERSION}*" | head -n1)
-fi
-
-if [[ -z "$PHP_CELLAR_DIR" || ! -d "$PHP_CELLAR_DIR" ]]; then
-    error "无法在 Cellar 中找到 PHP ${PHP_VERSION} 的安装目录"
-fi
-
-PECL_CELLAR="${PHP_CELLAR_DIR}/pecl"
-PECL_LIB="${BREW_PREFIX}/lib/php/pecl"
-CURRENT_USER=$(whoami)
-
-info "PHP 版本:    ${PHP_VERSION}"
-info "PHP API:     ${PHP_API}"
-info "Cellar 路径: ${PHP_CELLAR_DIR}"
-info "用户:        ${CURRENT_USER}"
-echo ""
-
-# ------------------------- 核心修复函数 -------------------------
-fix_pecl_path() {
-    local target_path="$1"
-    local label="$2"
-
-    if [[ ! -e "$target_path" ]]; then
-        info "[${label}] 路径不存在，正在创建真实目录..."
-        mkdir -p "${target_path}/${PHP_API}"
-        chown -R "${CURRENT_USER}:admin" "$target_path"
-        chmod -R u+rwx "$target_path"
-        success "[${label}] 已创建: ${target_path}/${PHP_API}"
-        return 0
+# -------------------- 环境检测 --------------------
+detect_php_env() {
+    if ! command -v php &>/dev/null; then
+        error "未找到 php 命令，请确认已安装 Homebrew PHP"
+        exit 1
     fi
 
-    if [[ -L "$target_path" ]]; then
-        warn "[${label}] 检测到符号链接: $(readlink "$target_path")"
-        info "[${label}] 正在移除符号链接并替换为真实目录..."
+    PHP_VERSION=$(php -r 'echo PHP_MAJOR_VERSION.".".PHP_MINOR_VERSION.".".PHP_RELEASE_VERSION;')
+    PHP_API=$(php -r 'echo PHP_API_VERSION;')
+    BREW_PREFIX=$(brew --prefix 2>/dev/null || echo "/opt/homebrew")
 
-        rm -f "$target_path"
-        mkdir -p "${target_path}/${PHP_API}"
-        chown -R "${CURRENT_USER}:admin" "$target_path"
-        chmod -R u+rwx "$target_path"
+    # Homebrew 版本号可能带后缀如 8.4.5_1，需模糊匹配
+    CELLAR_PHP_DIR=$(find "${BREW_PREFIX}/Cellar/php" -maxdepth 1 -type d -name "${PHP_VERSION}*" 2>/dev/null | head -1)
 
-        success "[${label}] 已修复为真实目录: ${target_path}/${PHP_API}"
-        return 0
+    if [[ -z "${CELLAR_PHP_DIR}" ]]; then
+        error "未在 ${BREW_PREFIX}/Cellar/php 中找到 PHP ${PHP_VERSION} 的安装目录"
+        exit 1
     fi
 
-    if [[ -d "$target_path" ]]; then
-        # 已经是真实目录，检查权限和子目录
-        if [[ ! -d "${target_path}/${PHP_API}" ]]; then
-            mkdir -p "${target_path}/${PHP_API}"
-        fi
-        chown -R "${CURRENT_USER}:admin" "$target_path"
-        chmod -R u+rwx "$target_path"
-        success "[${label}] 已是真实目录，权限已确认 ✓"
-        return 0
-    fi
+    CELLAR_PECL="${CELLAR_PHP_DIR}/pecl"
+    LIB_PECL="${BREW_PREFIX}/lib/php/pecl"
 
-    warn "[${label}] 路径存在但不是目录也不是符号链接，请手动检查: ${target_path}"
-    return 1
+    info "PHP 版本:     ${PHP_VERSION}"
+    info "PHP API:      ${PHP_API}"
+    info "Cellar PECL:  ${CELLAR_PECL}"
+    info "Lib PECL:     ${LIB_PECL}"
+    echo ""
 }
 
-# ------------------------- 执行修复 -------------------------
-echo "========================================="
-echo "  PECL 符号链接 Bug 自动修复工具"
-echo "========================================="
-echo ""
-
-HAS_ERROR=0
-
-fix_pecl_path "$PECL_CELLAR" "Cellar" || HAS_ERROR=1
-echo ""
-fix_pecl_path "$PECL_LIB"    "Lib"    || HAS_ERROR=1
-
-echo ""
-echo "========================================="
-
-# ------------------------- 验证结果 -------------------------
-info "验证修复结果..."
-VERIFY_PASS=true
-
-for check_path in "$PECL_CELLAR" "$PECL_LIB"; do
-    if [[ -L "$check_path" ]]; then
-        error "验证失败: ${check_path} 仍然是符号链接！"
-        VERIFY_PASS=false
-    elif [[ ! -d "${check_path}/${PHP_API}" ]]; then
-        warn "验证警告: ${check_path}/${PHP_API} 目录不存在"
-        VERIFY_PASS=false
-    fi
-done
-
-if $VERIFY_PASS; then
-    success "所有检查通过！现在可以正常运行 pecl install 了"
+# -------------------- fix 模式 --------------------
+do_fix() {
+    info "=== 模式: FIX (临时解除符号链接) ==="
     echo ""
-    info "测试命令: pecl install <扩展名>"
-else
-    warn "部分检查未通过，请查看上方日志手动处理"
-fi
 
-echo "========================================="
-exit $HAS_ERROR
+    local changed=0
+
+    # 处理 /lib/php/pecl
+    if [[ -L "${LIB_PECL}" ]]; then
+        warn "${LIB_PECL} 是符号链接，正在替换为真实目录..."
+        rm -f "${LIB_PECL}"
+        mkdir -p "${LIB_PECL}/${PHP_API}"
+        success "已创建真实目录: ${LIB_PECL}/${PHP_API}"
+        changed=1
+    elif [[ -d "${LIB_PECL}" ]]; then
+        success "${LIB_PECL} 已是真实目录，跳过"
+        # 确保 API 子目录存在
+        mkdir -p "${LIB_PECL}/${PHP_API}"
+    else
+        mkdir -p "${LIB_PECL}/${PHP_API}"
+        success "已创建目录: ${LIB_PECL}/${PHP_API}"
+        changed=1
+    fi
+
+    # 处理 Cellar pecl
+    if [[ -L "${CELLAR_PECL}" ]]; then
+        warn "${CELLAR_PECL} 是符号链接，正在替换为真实目录..."
+        rm -f "${CELLAR_PECL}"
+        mkdir -p "${CELLAR_PECL}/${PHP_API}"
+        success "已创建真实目录: ${CELLAR_PECL}/${PHP_API}"
+        changed=1
+    elif [[ -d "${CELLAR_PECL}" ]]; then
+        success "${CELLAR_PECL} 已是真实目录，跳过"
+        mkdir -p "${CELLAR_PECL}/${PHP_API}"
+    else
+        mkdir -p "${CELLAR_PECL}/${PHP_API}"
+        success "已创建目录: ${CELLAR_PECL}/${PHP_API}"
+        changed=1
+    fi
+
+    echo ""
+    if [[ ${changed} -eq 1 ]]; then
+        success "修复完成！现在可以安全运行:"
+        echo -e "  ${CYAN}pecl install -f <扩展名>${NC}"
+        echo ""
+        warn "⚠️  安装完所有扩展后，请务必运行:"
+        echo -e "  ${CYAN}$0 restore${NC}"
+    else
+        success "路径状态正常，无需修复"
+    fi
+}
+
+# -------------------- restore 模式 --------------------
+do_restore() {
+    info "=== 模式: RESTORE (恢复符号链接) ==="
+    echo ""
+
+    # 检查 Cellar 中是否有已安装的扩展
+    local has_extensions=0
+    if [[ -d "${CELLAR_PECL}/${PHP_API}" ]]; then
+        local so_count
+        so_count=$(find "${CELLAR_PECL}/${PHP_API}" -name "*.so" 2>/dev/null | wc -l | tr -d ' ')
+        if [[ ${so_count} -gt 0 ]]; then
+            has_extensions=1
+            info "在 Cellar 中发现 ${so_count} 个已安装的 .so 文件"
+        fi
+    fi
+
+    if [[ ${has_extensions} -eq 0 ]]; then
+        warn "Cellar PECL 目录中没有发现任何 .so 文件"
+        warn "请先运行 'pecl install -f <扩展名>' 安装扩展后再执行 restore"
+        echo ""
+        read -rp "是否仍要强制恢复符号链接？(y/N) " confirm
+        if [[ "${confirm}" != [yY] ]]; then
+            info "已取消操作"
+            exit 0
+        fi
+    fi
+
+    # 删除 /lib/php/pecl 真实目录，重建指向 Cellar 的符号链接
+    if [[ -d "${LIB_PECL}" && ! -L "${LIB_PECL}" ]]; then
+        info "移除独立目录: ${LIB_PECL}"
+        rm -rf "${LIB_PECL}"
+    elif [[ -L "${LIB_PECL}" ]]; then
+        info "符号链接已存在，先移除旧链接"
+        rm -f "${LIB_PECL}"
+    fi
+
+    ln -s "${CELLAR_PECL}" "${LIB_PECL}"
+    success "已恢复符号链接: ${LIB_PECL} -> ${CELLAR_PECL}"
+
+    # 验证
+    echo ""
+    info "验证结果:"
+    if [[ -L "${LIB_PECL}" ]]; then
+        local target
+        target=$(readlink "${LIB_PECL}")
+        success "符号链接目标: ${target}"
+    else
+        error "符号链接恢复失败！"
+        exit 1
+    fi
+
+    # 检查 redis.so 等常见扩展是否可访问
+    if [[ -f "${LIB_PECL}/${PHP_API}/redis.so" ]]; then
+        success "redis.so 可通过符号链接正常访问 ✅"
+    fi
+
+    echo ""
+    success "恢复完成！请验证 PHP 扩展加载:"
+    echo -e "  ${CYAN}php -m | grep redis${NC}"
+}
+
+# -------------------- 主入口 --------------------
+usage() {
+    echo "用法: $0 <fix|restore>"
+    echo ""
+    echo "  fix      升级 PHP 后运行，将 pecl 符号链接替换为真实目录"
+    echo "           使 pecl install 不再触发 mkdir(): File exists 错误"
+    echo ""
+    echo "  restore  pecl install 完成后运行，恢复 /lib/php/pecl 符号链接"
+    echo "           使 PHP 运行时能正确找到 Cellar 中的 .so 文件"
+    echo ""
+    echo "典型工作流:"
+    echo "  brew upgrade php"
+    echo "  $0 fix"
+    echo "  pecl install -f redis"
+    echo "  pecl install -f xdebug"
+    echo "  $0 restore"
+    echo "  php -m | grep -E 'redis|xdebug'"
+}
+
+main() {
+    local cmd="${1:-}"
+
+    if [[ -z "${cmd}" ]]; then
+        usage
+        exit 1
+    fi
+
+    detect_php_env
+
+    case "${cmd}" in
+        fix)     do_fix ;;
+        restore) do_restore ;;
+        *)
+            error "未知命令: ${cmd}"
+            usage
+            exit 1
+            ;;
+    esac
+}
+
+main "$@"
